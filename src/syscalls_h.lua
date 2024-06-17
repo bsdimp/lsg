@@ -28,6 +28,7 @@ end
 local FreeBSDSyscall = require("freebsd-syscall")
 
 local config = require("config")		-- Common config file mgt
+local util = require("util")
 
 -- Globals
 
@@ -36,24 +37,47 @@ local config = require("config")		-- Common config file mgt
 -- the bsd_user code generator A bit tricky because a lot of the inherited code
 -- has a global config table that it referrs to deep in the call tree... need to
 -- make sure that all that code is converted to using one local to the object.
-local config ={
+local cfg = {
+	syscallprefix = "SYS_"
 }
 
 -- Libc has all the STD, NOSTD and SYSMUX system calls in it, as well as
 -- replaced system calls dating back to FreeBSD 7. We are lucky that the
 -- system call filename is just the base symbol name for it.
-local function gen_syscalls_mk(tbl, config)
+local function gen_syscalls_mk(tbl, cfg)
 	local s = tbl.syscalls
+	local max = 0
+
+	util.generated_tag("System call numbers.")
 
 	for k, v in pairs(s) do
-		if      v.type.STD or
+		local c = v:compat_level()
+		if v.num > max then
+			max = v.num
+		end
+		if  v.type.STD or
 			v.type.NOSTD or
 			v.type.SYSMUX or
-			v:compat_level() >= 7
-		then
-			print(string.format("%s.o", v:symbol()))
+			c >= 7 then
+			print(string.format("#define\t%s%s\t%d", cfg.syscallprefix, v:symbol(), v.num))
+		elseif c >= 0 then
+			local s
+			if c == 0 then
+				s = "obsolete"
+			elseif c == 3 then
+				s = "old"
+			else
+				s = "freebsd" .. c
+			end
+			print(string.format("\t\t\t\t/* %d is %s %s */", v.num, s, v.name))
+		elseif v.type.RESERVED then
+			print(string.format("\t\t\t\t/* %d is reserved */", v.num))
+		elseif v.type.UNIMP then
+			print(string.format("\t\t\t\t/* %d is unimplemented %s */", v.num, v.name))
+		else -- do nothing
 		end
 	end
+	print(string.format("#define\t%sMAXSYSCALL\t%d", cfg.syscallprefix, max + 1))
 end
 
 -- Entry
@@ -64,21 +88,11 @@ end
 
 local sysfile, configfile = arg[1], arg[2]
 
--- process_config either returns nil and a message, or a table that we should
--- merge into the global config. XXX Seems like this should be in
--- config.something instead of bare code.
-if configfile ~= nil then
-	local res = assert(config.process(configfile))
+local cfg_mod = { }
 
-	for k, v in pairs(res) do
-		if v ~= config[k] then
-			config[k] = v
-			config_modified[k] = true
-		end
-	end
-end
+config.merge_global(configfile, cfg, cfg_mod)
 
 -- The parsed syscall table
-local tbl = FreeBSDSyscall:new{sysfile = sysfile, config = config}
+local tbl = FreeBSDSyscall:new{sysfile = sysfile, config = cfg}
 
-gen_syscalls_mk(tbl, config)
+gen_syscalls_mk(tbl, cfg)

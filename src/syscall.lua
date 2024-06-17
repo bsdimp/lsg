@@ -2,9 +2,11 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 --
 -- Copyright (c) 2023 Warner Losh <imp@bsdimp.com>
+-- Copyright (c) 2024 Tyler Baxter <agge@FreeBSD.org>
 --
 
 scarg = require("scarg")
+scret = require("scret")
 util = require("util")
 
 local syscall = {}
@@ -114,63 +116,92 @@ function syscall:compat_level()
 	return native
 end
 
+function syscall:adddef(line, words)
+    if self.num == nil then
+	    -- sort out range somehow XXX
+	    -- Also, where to put validation of no skipped syscall #? XXX
+        -- xxx potentially in iter()
+	    self.num = words[1]
+	    self.audit = words[2]
+	    self.type = util.SetFromString(words[3], "[^|]+")
+	    check_type(line, self.type)
+	    self.name = words[4]
+	    -- These next three are optional, and either all present or all absent
+	    self.altname = words[5]
+	    self.alttag = words[6]
+	    self.altrtyp = words[7]
+	    return self.name == "{"
+    end
+    return false
+end
+
+function syscall:addfunc(line, words)
+    if self.name == "{" then
+	    -- Expect line is "type syscall(" or "type syscall(void);"
+        if #words ~= 2 then
+            util.abort(1, "Malformed line " .. line)
+        end
+
+	    local ret = scret:new({ }, words[1])
+        self.rettype = ret:add()
+
+	    self.name = words[2]:match("([%w_]+)%(")
+	    if words[2]:match("%);$") then
+            -- now we're looking for ending curly brace
+	    	self.expect_rbrace = true
+	    end
+        return true
+    end
+    return false
+end
+
+function syscall:addargs(line)
+	if not self.expect_rbrace then
+	    if line:match("%);$") then
+	    	self.expect_rbrace = true
+	    	return true
+	    end
+
+        -- scarg is going to instantiate itself with its own methods
+	    local arg = scarg:new({ }, line)
+        -- if arg processes, then add. if not, don't add
+        if arg:process() then 
+            arg:append(self.args)
+        end
+        return true
+    end
+    return false
+end
+
+function syscall:is_added(line)
+    if self.expect_rbrace == true then
+  	    -- state wrapping up, can only get } here
+	    if not line:match("}$") then
+	    	util.abort(1, "Expected '}' found '" .. line .. "' instead.")
+	    end
+        return true
+    end
+    return false
+end
+
 --
 -- We build up the system call one line at a time, as we pass through 4 states
--- We don't have an explicit state name here, but maybe we should
+-- RETURN: TRUE, if syscall processing successful (and ready to add).
+--         FALSE, if still processing
+--         ABORT, with error
 --
 function syscall:add(line)
-	local words = util.split(line, "%S+")
-
-	-- starting
-	if self.num == nil then
-		-- sort out range somehow XXX
-		-- Also, where to put validation of no skipped syscall #? XXX
-		self.num = words[1]
-		self.audit = words[2]
-		self.type = util.SetFromString(words[3], "[^|]+")
-		check_type(line, self.type)
-		self.name = words[4]
-		-- These next three are optional, and either all present or all absent
-		self.altname = words[5]
-		self.alttag = words[6]
-		self.altrtyp = words[7]
-		return self.name ~= "{"
-	end
-
-	-- parse function name
-	if self.name == "{" then
-		-- Expect line is "type syscall(" or "type syscall(void);"
-		if #words ~= 2 then
-			util.abort(1, "Malformed line " .. line)
-		end
-		self.rettype = words[1]
-		self.name = words[2]:match("([%w_]+)%(")
-		if words[2]:match("%);$") then
-			self.expect_rbrace = true
-		end
-		return false
-	end
-
-	-- eating args
-	if not self.expect_rbrace then
-		-- We're looking for (another) argument
-		-- xxx copout for the moment and just snarf the argument
-		-- some have trailing , on last arg
-		if line:match("%);$") then
-			self.expect_rbrace = true
-			return false
-		end
-
-		local arg = scarg:new({ }, line)
-		table.insert(self.args, arg)
-		return false
-	end
-
-	-- state wrapping up, can only get } here
-	if not line:match("}$") then
-		util.abort(1, "Expected '}' found '" .. line .. "' instead.")
-	end
-	return true
+    local words = util.split(line, "%S+")
+    if self:adddef(line, words) then
+        return false -- definition added, keep going
+    end
+    if self:addfunc(line, words) then
+        return false -- function added, keep going
+    end
+    if self:addargs(line) then
+        return false -- arguments added, keep going
+    end
+    return self:is_added(line)
 end
 
 function syscall:new(obj)

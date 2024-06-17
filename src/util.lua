@@ -53,4 +53,94 @@ function util.SetFromString(str, re)
 	return s
 end
 
+--  Iterator that traverses a table following the order of its keys.
+--  An optional parameter f allows the specification of an alternative order. 
+--  CREDIT: https://www.lua.org/pil/19.3.html
+--  LICENSE: MIT
+function util.pairs_by_keys(t, f)
+	local a = {}
+	for n in pairs(t) do table.insert(a, n) end
+	table.sort(a, f)
+	local i = 0      -- iterator variable
+	local iter = function ()   -- iterator function
+		i = i + 1
+		if a[i] == nil then return nil
+		else return a[i], t[a[i]]
+		end
+	end
+	return iter
+end
+
+-- Prints the generated tag.
+-- @param str
+-- The title of the file.
+-- @param [comment]
+-- Default comment is C comments. Optional to change comment (e.g., to sh 
+-- comments). Will still follow C-style indentation. @see style(9)
+-- @note Handles multi-line titles, deliminated by newlines.
+function util.generated_tag(str, comment)
+    local comment_start = comment or "/*"
+    local comment_middle = comment or "*"
+    local comment_end = comment or "*/"
+    local tag = "@" .. "generated"
+
+    -- Don't enter loop if it's the simple case.
+    if str:find("\n") == nil then
+        print(string.format([[%s
+ %s %s
+ %s
+ %s DO NOT EDIT-- this file is automatically %s.
+ %s
+]], comment_start, comment_middle, str, comment_middle, comment_middle, tag, 
+            comment_end)) 
+
+    else
+        print(string.format([[%s]], comment_start))
+        for line in str:gmatch("[^\n]*") do
+            if line ~= nil then
+                print(string.format([[
+ %s %s]], comment_middle, line))
+            end
+        end
+        print(string.format([[ %s
+ %s DO NOT EDIT-- this file is automatically %s
+ %s
+]], comment_middle, comment_middle, tag, comment_end))
+    end
+end
+
+-- Checks for pointer types: '*', caddr_t, intptr_t.
+-- @param type
+-- The type to check.
+-- @param [abi]
+-- Optional ABI-specified intptr_t.
+function util.isptrtype(type, abi)
+    local default = "intptr_t" or abi
+	return type:find("*") or type:find("caddr_t") or type:find(default)
+end
+
+function util.isptrarraytype(type)
+	return type:find("[*][*]") or type:find("[*][ ]*const[ ]*[*]")
+end
+
+-- Find types that are always 64-bits wide.
+function util.is64bittype(type)
+	return type:find("^dev_t[ ]*$") or type:find("^id_t[ ]*$") 
+        or type:find("^off_t[ ]*$")
+end
+
+function util.strip_abi_prefix(funcname, abiprefix)
+	local stripped_name
+	if funcname == nil then
+		return nil
+	end
+	if abiprefix ~= "" and funcname:find("^" .. abiprefix) then
+		stripped_name = funcname:gsub("^" .. abiprefix, "")
+	else
+		stripped_name = funcname
+	end
+
+	return stripped_name
+end
+
 return util

@@ -59,14 +59,14 @@ function FreeBSDSyscall:parse_sysfile()
 		elseif line:match("^#%s*include") then
 			incs = incs .. line .. "\n"
 		elseif line:match("%%ABI_HEADERS%%") then
-			local h= self.config.abi_headers
+			local h = self.config.abi_headers
 			if h ~= nil and h ~= "" then
 				incs = incs .. h .. "\n"
 			end
 		elseif line:match("^#%s*define") then
 			defs = defs .. line.. "\n"
 		elseif line:match("^#") then
-			abort(1, "Unsupported cpp op " .. line)
+			util.abort(1, "Unsupported cpp op " .. line)
 		else
 			s = syscall:new()
 			if s:add(line) then
@@ -75,11 +75,11 @@ function FreeBSDSyscall:parse_sysfile()
 					table.insert(self.syscalls, t)
 				end
 				s = nil
-			end
+            end
 		end
 	end
 	if s ~= nil then
-		abort(1, "Dangling system call at the end")
+		util.abort(1, "Dangling system call at the end")
 	end
 
 	assert(io.close(fh))
