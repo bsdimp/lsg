@@ -1,0 +1,7 @@
+src/test/out
+src/test/syscalls.c
+src/test/sysproto.h
+src/test/init_sysent.c
+src/test/syscall.h
+src/test/syscall.mk
+src/test/systrace_args.c
